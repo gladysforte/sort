@@ -6,53 +6,64 @@ from rest_framework.views import APIView
 from django.http import Http404
 from rest_framework import status
 from rest_framework.response import Response
+from django.db.models import F
+from django.db.models import Max
+
 # Create your views here.
 
 
 class RankViewSet(viewsets.ModelViewSet):
     queryset = Rank.objects.all().order_by('rank')
     serializer_class = RankSerializer
-    # ranked = Rank.objects.filter(rank__gt=1).exclude(id=5).update(rank=F('rank') + 1)
-    # r = rank.objects.values().last()
-    # ranked.save()
-    # return ranked
 
+    def create(self, request, *args, **kwargs):
+        maxRank = Rank.objects.all().aggregate(Max('rank'))
 
-# class RankList(APIView):
-#     def get(self, request, format=None):
-#         ranks = Rank.objects.all().order_by('rank')
-#         serializer = RankSerializer(ranks, many=True)
-#         return Response(serializer.data)
+        for key, value in maxRank.items():
+            try1 = value + 1
 
-#     def post(self, request, format=None):
-#         serializer = RankSerializer(data=request.data)
-#         if serializer.is_valid():
-#             serializer.save()
-#             return Response(serializer.data, status=status.HTTP_201_CREATED)
-#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
 
+        x = Rank.objects.latest('id')
+        Rank.objects.filter(rank__gte=x.rank) \
+                    .exclude(id=x.id).update(rank=F('rank') + 1)
+        if x.rank > try1:
+            r = Rank.objects.get(id=x.id)
+            r.rank = try1
+            r.save()
 
-# class RankDetail(APIView):
-#     def get_object(self, pk):
-#         try:
-#             return Rank.objects.get(pk=pk)
-#         except Rank.DoesNotExist:
-#             raise Http404
+        return Response(serializer.data, status=status.HTTP_201_CREATED,
+                        headers=headers)
 
-#     def get(self, request, pk, format=None):
-#         rank = self.get_object(pk)
-#         serializer = RankSerializer(rank)
-#         return Response(serializer.data)
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        maxRank = Rank.objects.all().aggregate(Max('rank'))
 
-#     def put(self, request, pk, format=None):
-#         rank = self.get_object(pk)
-#         serializer = RankSerializer(rank, data=request.data)
-#         if serializer.is_valid():
-#             serializer.save()
-#             return Response(serializer.data)
-#         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        for key, value in maxRank.items():
+            try1 = value + 1
 
-#     def delete(self, request, pk, format=None):
-#         snippet = self.get_object(pk)
-#         snippet.delete()
-#         return Response(status=status.HTTP_204_NO_CONTENT)
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data,
+                                         partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+
+        if getattr(instance, '_prefetched_objects_cache', None):
+            # If 'prefetch_related' has been applied to a queryset, we need to
+            # forcibly invalidate the prefetch cache on the instance.
+            instance._prefetched_objects_cache = {}
+
+        x = Rank.objects.get(id=instance.id)
+        Rank.objects.filter(rank__gte=x.rank) \
+                    .exclude(id=x.id).update(rank=F('rank') + 1)
+
+        if x.rank > try1:
+            r = Rank.objects.get(id=x.id)
+            r.rank = try1
+            r.save()
+
+        return Response(serializer.data)

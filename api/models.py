@@ -19,4 +19,3 @@ class Rank(models.Model):
 
     class Meta:
         db_table = 'ranks'
-
